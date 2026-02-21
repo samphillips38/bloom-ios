@@ -125,6 +125,9 @@ struct LessonContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             switch content.contentData {
+            case .page(let pageContent):
+                pageView(pageContent)
+                
             case .text(let textContent):
                 textView(textContent)
                 
@@ -140,6 +143,164 @@ struct LessonContentView: View {
         }
     }
     
+    // MARK: - Rich Page View
+    
+    private func pageView(_ content: ContentData.PageContent) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(content.blocks.enumerated()), id: \.offset) { _, block in
+                blockView(block)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func blockView(_ block: ContentBlock) -> some View {
+        switch block {
+        case .heading(let b):
+            Text(b.segments.map { $0.text }.joined())
+                .font(b.level == 1 ? .bloomH1 : b.level == 3 ? .bloomH3 : .bloomH2)
+                .foregroundColor(.bloomTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .center)
+        case .paragraph(let b):
+            richTextView(b.segments)
+        case .image(let b):
+            richImageView(b)
+        case .math(let b):
+            VStack(spacing: 8) {
+                Text(b.latex)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.bloomTextPrimary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.gray.opacity(0.06))
+                    )
+                if let caption = b.caption {
+                    Text(caption)
+                        .font(.bloomSmall)
+                        .foregroundColor(.bloomTextSecondary)
+                        .italic()
+                }
+            }
+        case .callout(let b):
+            calloutView(b)
+        case .bulletList(let b):
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(b.items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 12) {
+                        Circle()
+                            .fill(Color.bloomOrange)
+                            .frame(width: 8, height: 8)
+                            .padding(.top, 8)
+                        richTextView(item)
+                    }
+                }
+            }
+        case .interactive:
+            interactiveView()
+        case .spacer(let b):
+            Spacer().frame(height: b.size == "sm" ? 8 : b.size == "lg" ? 28 : 16)
+        case .divider:
+            Divider().padding(.vertical, 8)
+        case .animation:
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.bloomBlue.opacity(0.1))
+                .frame(height: 160)
+                .overlay(
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(.bloomBlue)
+                )
+        }
+    }
+    
+    private func richTextView(_ segments: [TextSegment]) -> some View {
+        // Build an attributed string from segments
+        let attributedString = segments.reduce(Text("")) { result, seg in
+            var segText = Text(seg.text)
+            if seg.bold == true { segText = segText.bold() }
+            if seg.italic == true { segText = segText.italic() }
+            if seg.underline == true { segText = segText.underline() }
+            if let color = seg.color {
+                switch color {
+                case "accent": segText = segText.foregroundColor(.bloomOrange)
+                case "blue": segText = segText.foregroundColor(.bloomBlue)
+                case "purple": segText = segText.foregroundColor(.bloomPurple)
+                case "success": segText = segText.foregroundColor(.bloomSuccess)
+                case "warning": segText = segText.foregroundColor(.bloomYellow)
+                default: break
+                }
+            }
+            return result + segText
+        }
+        return attributedString
+            .font(.bloomBody)
+            .lineSpacing(6)
+    }
+    
+    private func richImageView(_ content: ContentBlock.ImageBlock) -> some View {
+        VStack(spacing: 12) {
+            if content.src.hasPrefix("emoji:") {
+                let emoji = String(content.src.dropFirst(6))
+                Text(emoji)
+                    .font(.system(size: 64))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 160)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(
+                                LinearGradient(colors: [.bloomBlue.opacity(0.2), .bloomPurple.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.gray.opacity(0.1))
+                    .frame(height: 200)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 48))
+                            .foregroundColor(.gray.opacity(0.3))
+                    )
+            }
+            if let caption = content.caption {
+                Text(caption)
+                    .font(.bloomSmall)
+                    .foregroundColor(.bloomTextSecondary)
+                    .italic()
+            }
+        }
+    }
+    
+    private func calloutView(_ content: ContentBlock.CalloutBlock) -> some View {
+        let (bgColor, iconName, iconColor): (Color, String, Color) = {
+            switch content.style {
+            case "tip": return (Color.bloomYellow.opacity(0.1), "lightbulb.fill", .bloomYellow)
+            case "warning": return (Color.red.opacity(0.1), "exclamationmark.triangle.fill", .red)
+            case "example": return (Color.bloomPurple.opacity(0.1), "book.fill", .bloomPurple)
+            default: return (Color.bloomBlue.opacity(0.1), "info.circle.fill", .bloomBlue)
+            }
+        }()
+        
+        return VStack(alignment: .leading, spacing: 8) {
+            if let title = content.title {
+                HStack(spacing: 8) {
+                    Image(systemName: iconName)
+                        .foregroundColor(iconColor)
+                    Text(title)
+                        .font(.bloomSmallMedium)
+                        .foregroundColor(.bloomTextPrimary)
+                }
+            }
+            richTextView(content.segments)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(bgColor)
+        )
+    }
+    
     private func textView(_ content: ContentData.TextContent) -> some View {
         Text(content.text)
             .font(content.formatting?.bold == true ? .bloomBodyBold : .bloomBody)
@@ -147,7 +308,7 @@ struct LessonContentView: View {
             .lineSpacing(6)
     }
     
-    private func imageView(_ content: ContentData.ImageContent) -> some View {
+    private func imageView(_ content: ContentData.LegacyImageContent) -> some View {
         VStack(spacing: 12) {
             // Placeholder for image
             RoundedRectangle(cornerRadius: 16)
